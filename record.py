@@ -1,31 +1,24 @@
-import time
+import datetime
+import firebase_admin
 
 class Record:
-    # log time spent playing
-    # log time start
-    # log time end
+    time_start: datetime.datetime = None
+    time_end: datetime.datetime = None
 
-    time_spent = 0
-    time_start = 0
-    time_end = 0
     def __init__(self):
-        self.time_spent = 0
-        self.time_start = 0
-        self.time_end = 0
+        self.time_start = None
+        self.time_end = None
 
     def start(self):
-        self.time_start = time.perf_counter()
+        self.time_start = datetime.datetime.now(datetime.timezone.utc)
         print(f"Recording started at {self.time_start}")
 
     def end(self):
-        self.time_end = time.perf_counter()
+        self.time_end = datetime.datetime.now(datetime.timezone.utc)
         print(f"Recording ended at {self.time_end}")
-        self.time_spent = self.time_end - self.time_start
-        print(f"Total time spent: {self.time_spent:.2f} seconds")
 
     def convert_to_json(self):
         return {
-            "time_spent": self.time_spent,
-            "time_start": self.time_start,
-            "time_end": self.time_end
+            "time_start": self.time_start.isoformat() if self.time_start else None,
+            "time_end": self.time_end.isoformat() if self.time_end else None
         }
