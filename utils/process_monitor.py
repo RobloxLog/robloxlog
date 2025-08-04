@@ -43,11 +43,17 @@ async def simple_polling_monitor():
 
     conf = load_config()
 
-    # Get initial state
+    # Get initial state and handle already running processes
     for proc in psutil.process_iter(['pid', 'name']):
         try:
             if proc.info['name'] in ROBLOX_PROCESSES:
                 known_processes.add((proc.info['pid'], proc.info['name']))
+                # If auto_close_roblox is enabled, kill already running processes
+                if conf.get("auto_close_roblox", False):
+                    print(f"Found existing Roblox process: {proc.info['name']} (PID: {proc.info['pid']}) - killing due to auto_close_roblox")
+                    await kill_roblox_processes()
+                    known_processes.clear()  # Clear since we killed all processes
+                    break  # Exit loop since we killed all processes
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
@@ -67,13 +73,14 @@ async def simple_polling_monitor():
         new_processes = current_processes - known_processes
         for pid, name in new_processes:
             print(f"Process started: {name} (PID: {pid})")
-            print(conf)
-            if conf["auto_close_roblox"]:
+            # Check config and kill if auto_close_roblox is enabled
+            if conf.get("auto_close_roblox", False):
+                print(f"Auto-closing Roblox process: {name} (PID: {pid})")
                 await kill_roblox_processes()
-
-            
-            record.start()
-            send_mobile_alert(f"{name} has started (PID: {pid})")
+                current_processes.clear()  # Clear since we killed all processes
+            else:
+                record.start()
+                send_mobile_alert(f"{name} has started (PID: {pid})")
 
         # Check for terminated processes
         terminated_processes = known_processes - current_processes

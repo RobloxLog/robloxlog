@@ -1,14 +1,14 @@
 from fastapi import FastAPI, Request
 from api.routes import router as api_router
 import asyncio
+from contextlib import asynccontextmanager
 from utils.process_monitor import simple_polling_monitor, check_current_processes, kill_roblox_processes, load_config
-
-app = FastAPI()
 
 monitor_task = None
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     print("Starting up the application...")
     conf = load_config()
     # Check for running Roblox processes on startup
@@ -18,13 +18,15 @@ async def startup_event():
     # Start monitoring automatically
     global monitor_task
     monitor_task = asyncio.create_task(simple_polling_monitor())
-
-@app.on_event("shutdown")
-async def shutdown_event():
+    
+    yield
+    
+    # Shutdown
     print("Shutting down the application...")
-    global monitor_task
     if monitor_task:
         monitor_task.cancel()
+
+app = FastAPI(lifespan=lifespan)
 
 @app.post("/start_monitoring")
 async def start_monitoring():
