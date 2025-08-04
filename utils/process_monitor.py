@@ -8,6 +8,7 @@ ROBLOX_PROCESSES = [
     "RobloxPlayerBeta.exe",
     "RobloxStudioBeta.exe",
     "RobloxPlayerLauncher.exe",
+    "Roblox"
 ]
 
 def load_config() -> dict:
@@ -46,7 +47,7 @@ async def simple_polling_monitor():
     # Get initial state and handle already running processes
     for proc in psutil.process_iter(['pid', 'name']):
         try:
-            if proc.info['name'] in ROBLOX_PROCESSES:
+            if proc.info['name'] in ROBLOX_PROCESSES or 'roblox' in proc.info['name'].lower():
                 known_processes.add((proc.info['pid'], proc.info['name']))
                 # If auto_close_roblox is enabled, kill already running processes
                 if conf.get("auto_close_roblox", False):
