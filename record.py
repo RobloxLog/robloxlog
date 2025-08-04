@@ -1,5 +1,5 @@
 import datetime
-import firebase_admin
+
 
 class Record:
     time_start: datetime.datetime = None
