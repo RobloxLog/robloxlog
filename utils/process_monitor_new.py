@@ -62,21 +62,6 @@ class SessionRecord:
             "is_active": self.is_active,
             "metadata": self.metadata
         }
-    
-    @property
-    def formatted_duration(self) -> str:
-        """Get formatted duration string"""
-        if self.duration_seconds == 0:
-            return "0h 0m"
-        
-        total_seconds = int(self.duration_seconds)
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        else:
-            return f"{minutes}m"
 
 class ProcessMonitorService:
     """Main service for monitoring Roblox processes"""
@@ -86,16 +71,11 @@ class ProcessMonitorService:
         self.monitor_task = None
         self.known_processes = set()
         self.session_manager = None
-        self.desktop_service = None  # Will be injected
         self.config = {}
         
     def set_session_manager(self, session_manager):
         """Set the session manager reference"""
         self.session_manager = session_manager
-    
-    def set_desktop_service(self, desktop_service):
-        """Set the desktop service reference"""
-        self.desktop_service = desktop_service
         
     async def start(self):
         """Start the monitoring service"""
@@ -174,82 +154,23 @@ class ProcessMonitorService:
         """Handle when a Roblox process starts"""
         logger.info(f"Roblox process started: {name} (PID: {pid})")
         
-        # Debug: Check if desktop service is available
-        if not self.desktop_service:
-            logger.warning("Desktop service not available - events will not be sent to desktop client")
-        else:
-            logger.info("Desktop service available - sending events")
-        
-        # Send event to desktop client immediately
-        process_info = {
-            "pid": pid,
-            "name": name,
-            "started_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        if self.desktop_service:
-            try:
-                await self.desktop_service.send_roblox_event("roblox_started", process_info)
-                logger.info("Successfully sent roblox_started event to desktop client")
-            except Exception as e:
-                logger.error(f"Failed to send roblox_started event: {e}")
-        
         # Check if auto-close is enabled
         if self.config.get("auto_close_roblox", False):
             logger.info(f"Auto-closing Roblox process: {name} (PID: {pid})")
             await self._kill_roblox_processes()
-            
-            # Send auto-close event to desktop
-            if self.desktop_service:
-                try:
-                    await self.desktop_service.send_roblox_event("roblox_auto_closed", {
-                        "reason": "Auto-close enabled",
-                        "process": process_info
-                    })
-                    logger.info("Successfully sent roblox_auto_closed event to desktop client")
-                except Exception as e:
-                    logger.error(f"Failed to send roblox_auto_closed event: {e}")
             return
         
         # Start a session if session manager is available
         if self.session_manager:
-            try:
-                session = await self.session_manager.start_session("default_child")
-                logger.info(f"Started session: {session.session_id}")
-                
-                # Send session started event to desktop
-                if self.desktop_service:
-                    try:
-                        await self.desktop_service.send_session_event("session_started", session.to_dict())
-                        logger.info("Successfully sent session_started event to desktop client")
-                    except Exception as e:
-                        logger.error(f"Failed to send session_started event: {e}")
-            except Exception as e:
-                logger.error(f"Failed to start session: {e}")
-        else:
-            logger.warning("Session manager not available - no session will be started")
+            await self.session_manager.start_session("default_child")
     
     async def _handle_process_terminated(self, pid: int, name: str):
         """Handle when a Roblox process terminates"""
         logger.info(f"Roblox process terminated: {name} (PID: {pid})")
         
-        # Send event to desktop client immediately
-        process_info = {
-            "pid": pid,
-            "name": name,
-            "terminated_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        if self.desktop_service:
-            await self.desktop_service.send_roblox_event("roblox_stopped", process_info)
-        
         # End session if session manager is available
         if self.session_manager:
-            session = await self.session_manager.end_session("default_child")
-            
-            # Send session ended event to desktop
-            if self.desktop_service and session:
-                await self.desktop_service.send_session_event("session_ended", session.to_dict())
+            await self.session_manager.end_session("default_child")
     
     def _is_roblox_process(self, process_name: str) -> bool:
         """Check if a process name is a Roblox process"""
@@ -306,11 +227,6 @@ class SessionManager:
         self.active_sessions: Dict[str, SessionRecord] = {}
         self.session_history: List[SessionRecord] = []
         self.time_limits: Dict[str, int] = {}  # minutes per child
-        self.desktop_service = None  # Will be set later
-        
-    def set_desktop_service(self, desktop_service):
-        """Set the desktop client service reference"""
-        self.desktop_service = desktop_service
         
     async def start_session(self, child_profile: str) -> SessionRecord:
         """Start a new session for a child"""
@@ -321,17 +237,6 @@ class SessionManager:
         session = SessionRecord(child_profile)
         session.start()
         self.active_sessions[child_profile] = session
-        
-        # Send session start notification to desktop client
-        if self.desktop_service:
-            await self.desktop_service.send_notification_to_desktop(
-                "Roblox Session Started",
-                f"{child_profile} started playing Roblox",
-                "session_start"
-            )
-            
-            # Send session data to desktop client for Firebase sync
-            await self.desktop_service.send_session_to_desktop(session.to_dict())
         
         logger.info(f"Started session for {child_profile}: {session.session_id}")
         return session
@@ -346,17 +251,6 @@ class SessionManager:
             self.session_history.append(session)
             del self.active_sessions[child_profile]
             
-            # Send session end notification to desktop client
-            if self.desktop_service:
-                await self.desktop_service.send_notification_to_desktop(
-                    "Roblox Session Ended", 
-                    f"{child_profile} stopped playing Roblox ({session.formatted_duration})",
-                    "session_end"
-                )
-                
-                # Send final session data to desktop client for Firebase sync
-                await self.desktop_service.request_firebase_sync(session.to_dict(), "session_complete")
-            
             logger.info(f"Ended session for {child_profile}: {session.session_id}")
             return session
         return None
@@ -364,30 +258,15 @@ class SessionManager:
     def get_live_session(self, child_profile: str) -> Optional[Dict[str, Any]]:
         """Get the current live session for a child"""
         if child_profile in self.active_sessions:
-            session_data = self.active_sessions[child_profile].to_dict()
-            # Update current duration
-            session_data['current_duration_seconds'] = (
-                datetime.now(timezone.utc) - self.active_sessions[child_profile].time_start
-            ).total_seconds()
-            return session_data
+            return self.active_sessions[child_profile].to_dict()
         return None
     
     def set_time_limit(self, child_profile: str, limit_minutes: int):
         """Set time limit for a child profile"""
         self.time_limits[child_profile] = limit_minutes
         logger.info(f"Set time limit for {child_profile}: {limit_minutes} minutes")
-        
-        # Notify desktop client of time limit change
-        if self.desktop_service:
-            asyncio.create_task(
-                self.desktop_service.send_notification_to_desktop(
-                    "Time Limit Updated",
-                    f"Time limit for {child_profile} set to {limit_minutes} minutes",
-                    "time_limit_update"
-                )
-            )
     
-    async def check_time_limits(self) -> List[str]:
+    def check_time_limits(self) -> List[str]:
         """Check if any active sessions exceed time limits"""
         exceeded_profiles = []
         
@@ -398,14 +277,6 @@ class SessionManager:
                 
                 if current_duration > limit_seconds:
                     exceeded_profiles.append(child_profile)
-                    
-                    # Send time limit exceeded notification
-                    if self.desktop_service:
-                        await self.desktop_service.send_notification_to_desktop(
-                            "Time Limit Exceeded",
-                            f"{child_profile} has exceeded their {self.time_limits[child_profile]} minute limit",
-                            "time_limit_exceeded"
-                        )
         
         return exceeded_profiles
 
@@ -505,155 +376,49 @@ class SystemInfoService:
             logger.error(f"Error getting system info: {e}")
             return {"error": str(e)}
 
-# Desktop Client Communication Service
-class DesktopClientService:
-    """Service for communicating with Flutter desktop client"""
-    
-    def __init__(self):
-        self.desktop_client_connected = False
-        self.session_data_queue = []
-        self.notification_queue = []
-        self.event_queue = []  # New: Queue for events to send to desktop
-        self.websocket_server = None
-        
-    async def init_websocket_server(self):
-        """Initialize WebSocket server for real-time communication"""
-        try:
-            from utils.websocket_server import WebSocketServer
-            self.websocket_server = WebSocketServer()
-            await self.websocket_server.start_server()
-            logger.info("WebSocket server initialized successfully for desktop client communication")
-        except ImportError as e:
-            logger.warning(f"WebSocket server module not available: {e}")
-        except Exception as e:
-            logger.warning(f"Could not initialize WebSocket server: {e}")
-            logger.info("Desktop client communication will use HTTP polling only")
-        
-    def set_client_connected(self, connected: bool):
-        """Set desktop client connection status"""
-        self.desktop_client_connected = connected
-        logger.info(f"Desktop client {'connected' if connected else 'disconnected'}")
-        
-        # Process queued data when client connects
-        if connected:
-            asyncio.create_task(self._process_queued_data())
-    
-    async def _process_queued_data(self):
-        """Process any queued session data or notifications"""
-        # Process session data queue
-        for session_data in self.session_data_queue:
-            logger.info(f"Sending queued session data to desktop client: {session_data['session_id']}")
-            await self._send_via_available_channel("session_data", session_data)
-        
-        # Process notification queue  
-        for notification in self.notification_queue:
-            logger.info(f"Sending queued notification to desktop client: {notification['title']}")
-            await self._send_via_available_channel("notification", notification)
-        
-        # Process event queue
-        for event in self.event_queue:
-            logger.info(f"Sending queued event to desktop client: {event['type']}")
-            await self._send_via_available_channel("event", event)
-        
-        # Clear queues
-        self.session_data_queue.clear()
-        self.notification_queue.clear()
-        self.event_queue.clear()
-    
-    async def _send_via_available_channel(self, message_type: str, data: Dict[str, Any]):
-        """Send data via WebSocket if available, otherwise queue"""
-        logger.info(f"Attempting to send {message_type} via available channel")
-        
-        # Try WebSocket first (real-time)
-        if self.websocket_server and self.websocket_server.has_connected_clients():
-            try:
-                await self.websocket_server.send_to_desktop(message_type, data)
-                logger.info(f"Successfully sent {message_type} via WebSocket")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to send {message_type} via WebSocket: {e}")
-        else:
-            if not self.websocket_server:
-                logger.info("WebSocket server not available")
-            elif not self.websocket_server.has_connected_clients():
-                logger.info("No WebSocket clients connected")
-        
-        # Fall back to HTTP polling queue
-        event_data = {
-            "type": message_type,
-            "data": data,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        self.event_queue.append(event_data)
-        logger.info(f"Queued {message_type} for HTTP polling (queue size: {len(self.event_queue)})")
-        return False
-    
-    async def send_roblox_event(self, event_type: str, process_info: Dict[str, Any]):
-        """Send Roblox process events (started/stopped) to desktop client"""
-        event_data = {
-            "event_type": event_type,  # "roblox_started" or "roblox_stopped"
-            "process_info": process_info,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        
-        await self._send_via_available_channel("roblox_event", event_data)
-        logger.info(f"Sent Roblox event to desktop client: {event_type}")
-    
-    async def send_session_event(self, event_type: str, session_data: Dict[str, Any]):
-        """Send session events to desktop client"""
-        event_data = {
-            "event_type": event_type,  # "session_started", "session_ended", "time_limit_warning"
-            "session_data": session_data,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        
-        await self._send_via_available_channel("session_event", event_data)
-        logger.info(f"Sent session event to desktop client: {event_type}")
-    
-    async def send_session_to_desktop(self, session_data: Dict[str, Any]) -> bool:
-        """Send session data to desktop client for Firebase sync"""
-        return await self._send_via_available_channel("session_data", session_data)
-    
-    async def send_notification_to_desktop(self, title: str, message: str, notification_type: str = "info") -> bool:
-        """Send notification to desktop client"""
-        notification_data = {
-            "title": title,
-            "message": message, 
-            "type": notification_type,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        
-        return await self._send_via_available_channel("notification", notification_data)
-    
-    async def request_firebase_sync(self, data: Dict[str, Any], data_type: str = "session") -> bool:
-        """Request desktop client to sync data to Firebase"""
-        sync_request = {
-            "type": "firebase_sync",
-            "data_type": data_type,
-            "data": data,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-        
-        return await self._send_via_available_channel("firebase_sync_request", sync_request)
-    
-    def get_pending_events(self) -> List[Dict[str, Any]]:
-        """Get all pending events for HTTP polling (desktop client calls this)"""
-        events = self.event_queue.copy()
-        self.event_queue.clear()  # Clear after retrieval
-        return events
-
-# Legacy Firebase Service for backward compatibility
+# Firebase Integration
 class FirebaseService:
-    """Legacy Firebase service - now delegates to desktop client"""
+    """Service for Firebase integration"""
     
     def __init__(self):
-        self.firebase_initialized = False  # Always False since we use desktop client
-        self.desktop_service = DesktopClientService()
-        logger.info("Firebase service initialized - using desktop client for Firebase operations")
+        self.firebase_initialized = False
+        self._init_firebase()
+    
+    def _init_firebase(self):
+        """Initialize Firebase connection"""
+        try:
+            import firebase_admin
+            from firebase_admin import credentials, firestore
+            
+            # Look for Firebase credentials file
+            cred_file = "robloxlog-264f8-firebase-adminsdk-fbsvc-4b42b3cb1f.json"
+            if Path(cred_file).exists():
+                cred = credentials.Certificate(cred_file)
+                firebase_admin.initialize_app(cred)
+                self.db = firestore.client()
+                self.firebase_initialized = True
+                logger.info("Firebase initialized successfully")
+            else:
+                logger.warning("Firebase credentials file not found")
+                
+        except ImportError:
+            logger.warning("Firebase SDK not installed")
+        except Exception as e:
+            logger.error(f"Firebase initialization failed: {e}")
     
     async def sync_session(self, session_data: Dict[str, Any]) -> bool:
-        """Sync session data via desktop client"""
-        return await self.desktop_service.request_firebase_sync(session_data, "session")
+        """Sync session data to Firebase"""
+        if not self.firebase_initialized:
+            return False
+        
+        try:
+            doc_ref = self.db.collection('sessions').document(session_data['session_id'])
+            doc_ref.set(session_data)
+            logger.info(f"Synced session to Firebase: {session_data['session_id']}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to sync session to Firebase: {e}")
+            return False
 
 # Utility functions
 def load_config() -> dict:

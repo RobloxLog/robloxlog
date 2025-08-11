@@ -1,23 +1,77 @@
-# Poller Project
+# Roblox Parental Control Backend
 
 ## Overview
-Poller is a FastAPI application designed to monitor Roblox processes on your system. It provides an API to check the status of these processes, start/stop monitoring, and send alerts when processes start or terminate.
+This is the Python backend component of a comprehensive Roblox parental control system. It monitors Roblox processes, manages gaming sessions, and provides APIs for a Flutter desktop client that handles Firebase integration and mobile app communication.
+
+## Architecture
+The system follows a secure three-tier architecture:
+- **Python Backend** (this project): Monitors Roblox processes and local system control
+- **Flutter Desktop Client**: Handles Firebase authentication, data sync, and acts as intermediary
+- **Mobile App**: Remote monitoring and control via Firebase
+
+This design keeps Firebase credentials secure in the desktop client rather than stored locally with the Python service.
 
 ## Project Structure
 ```
 poller/
-├── main.py                  # Entry point of the FastAPI application
+├── main.py                  # FastAPI application entry point with service initialization
 ├── api/
-│   └── routes.py            # API routes for the FastAPI application
+│   └── routes.py            # Comprehensive API routes matching Flutter client expectations
 ├── utils/
-│   └── process_monitor.py   # Logic for monitoring Roblox processes
-├── requirements.txt         # Project dependencies
-├── config.json              # Configuration file
-└── README.md                # Project documentation
+│   └── process_monitor.py   # Core monitoring services and desktop client communication
+├── record.py                # Session recording and profile management
+├── config.json              # Configuration with security-focused defaults
+├── requirements.txt         # Python dependencies
+└── README.md                # This documentation
 ```
 
 ## Installation
-To set up the project, follow these steps:
+1. Ensure you have Python 3.8+ installed
+2. Clone this repository
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## Configuration
+The `config.json` file contains all system settings:
+- **Security**: Firebase handled by desktop client (no credentials stored locally)
+- **Monitoring**: Process detection intervals and behavior
+- **Parental Controls**: Time limits, auto-close behavior, notifications
+- **Desktop Client**: Communication settings and queuing
+
+## API Endpoints
+
+### Core Monitoring
+- `GET /health` - Health check for Flutter client
+- `GET /roblox/status` - Current Roblox process status
+- `GET /roblox/process` - Detailed process information
+- `POST /roblox/close` - Force close Roblox processes
+
+### Session Management
+- `POST /monitor/start` - Start monitoring for child profile
+- `POST /monitor/stop` - Stop monitoring for child profile
+- `GET /session/live/{child_profile}` - Get live session data
+
+### Desktop Client Communication
+- `POST /desktop/connect` - Desktop client connection notification
+- `POST /desktop/disconnect` - Desktop client disconnection
+- `GET /desktop/status` - Connection status and queued items
+- `GET /desktop/queue/sessions` - Retrieve queued session data
+- `GET /desktop/queue/notifications` - Retrieve queued notifications
+- `POST /desktop/command` - Receive commands from mobile app via desktop client
+
+### System & Controls
+- `GET /system/info` - System information
+- `POST /limits/set` - Set time limits for child profiles
+- `POST /notification/send` - Send desktop notifications
+- `POST /sync/firebase` - Request Firebase sync via desktop client
+
+## Security Features
+- **No Local Firebase Credentials**: All Firebase operations handled by desktop client
+- **Process Isolation**: Python backend only handles local system operations
+- **Command Queuing**: Commands queued when desktop client disconnected
+- **Secure Communication**: All mobile commands routed through authenticated desktop client
 
 1. Clone the repository:
    ```

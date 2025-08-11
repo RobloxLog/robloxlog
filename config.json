@@ -1,3 +1,63 @@
 {
-    "auto_close_roblox": true
+    "auto_close_roblox": false,
+    "monitor_interval": 2,
+    "enable_notifications": true,
+    "time_limits": {
+        "default_child": 120
+    },
+    "profiles": {
+        "default_child": {
+            "id": "default_child",
+            "name": "Default Child",
+            "type": "child",
+            "auto_close": true,
+            "daily_time_limit": 120,
+            "allowed_days": [
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday"
+            ],
+            "bedtime": null
+        }
+    },
+    "firebase": {
+        "enabled": true,
+        "use_desktop_client": true,
+        "note": "Firebase authentication handled by Flutter desktop client for security"
+    },
+    "desktop_client": {
+        "required": true,
+        "auto_connect_timeout": 30,
+        "queue_max_items": 1000,
+        "heartbeat_interval": 60,
+        "websocket": {
+            "enabled": true,
+            "host": "localhost",
+            "port": 8001
+        },
+        "http_polling": {
+            "enabled": true,
+            "interval": 2
+        }
+    },
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "debug": false
+    },
+    "parental_controls": {
+        "require_parent_approval": true,
+        "send_activity_reports": true,
+        "block_inappropriate_games": false,
+        "force_close_on_time_limit": true
+    },
+    "security": {
+        "firebase_credentials_in_desktop": true,
+        "local_storage_encrypted": false,
+        "require_desktop_auth": true
+    }
 }

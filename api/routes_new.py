@@ -6,14 +6,13 @@ import logging
 from datetime import datetime
 import asyncio
 
-# Import our services
-from utils.process_monitor import (
+# Import our services (we'll need to update imports when we replace files)
+from utils.process_monitor_new import (
     ProcessMonitorService, 
     SessionManager, 
     NotificationService, 
     SystemInfoService,
     FirebaseService,
-    DesktopClientService,
     load_config, 
     save_config
 )
@@ -28,21 +27,18 @@ session_manager: Optional[SessionManager] = None
 notification_service: Optional[NotificationService] = None
 system_info_service: Optional[SystemInfoService] = None
 firebase_service: Optional[FirebaseService] = None
-desktop_service: Optional[DesktopClientService] = None
 
 # Initialize services on module load
 def init_services():
-    global monitor_service, session_manager, notification_service, system_info_service, firebase_service, desktop_service
+    global monitor_service, session_manager, notification_service, system_info_service, firebase_service
     monitor_service = ProcessMonitorService()
     session_manager = SessionManager()
     notification_service = NotificationService()
     system_info_service = SystemInfoService()
     firebase_service = FirebaseService()
-    desktop_service = DesktopClientService()
     
     # Link services
     monitor_service.set_session_manager(session_manager)
-    session_manager.set_desktop_service(desktop_service)
 
 # Pydantic models for request validation
 class MonitorStartRequest(BaseModel):
@@ -224,42 +220,28 @@ async def get_live_session(child_profile: str):
 # Firebase Sync Endpoints
 @router.post("/sync/firebase")
 async def sync_session_with_firebase(request: SyncFirebaseRequest):
-    """Sync session data with Firebase via desktop client"""
-    if not desktop_service:
+    """Sync session data with Firebase"""
+    if not firebase_service:
         init_services()
     
     try:
-        # Send to desktop client for Firebase sync
-        success = await desktop_service.request_firebase_sync(request.session_data, "manual_sync")
-        
-        return {
-            "status": "success" if success else "error", 
-            "message": "Sync request sent to desktop client" if success else "Desktop client not available",
-            "timestamp": datetime.now().isoformat(),
-            "note": "Firebase sync handled by desktop client for security"
-        }
+        if firebase_service.firebase_initialized:
+            success = await firebase_service.sync_session(request.session_data)
+            
+            return {
+                "status": "success" if success else "error",
+                "message": "Session synced successfully" if success else "Failed to sync session",
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "Firebase not initialized",
+                "timestamp": datetime.now().isoformat()
+            }
             
     except Exception as e:
-        logger.error(f"Error requesting Firebase sync: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/sync/confirm")
-async def confirm_firebase_sync(request: Request):
-    """Confirm Firebase sync completion from desktop client"""
-    try:
-        data = await request.json()
-        session_id = data.get("session_id")
-        success = data.get("success", False)
-        
-        logger.info(f"Firebase sync {'successful' if success else 'failed'} for session: {session_id}")
-        
-        return {
-            "status": "success",
-            "message": "Sync confirmation received",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error processing sync confirmation: {e}")
+        logger.error(f"Error syncing with Firebase: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # System Information Endpoints
@@ -408,176 +390,3 @@ async def kill_roblox_legacy():
 
 # Initialize services when module loads
 init_services()
-
-# Desktop Client Communication Endpoints
-@router.post("/desktop/connect")
-async def desktop_client_connect():
-    """Notify Python backend that desktop client is connected"""
-    if not desktop_service:
-        init_services()
-    
-    try:
-        desktop_service.set_client_connected(True)
-        return {
-            "status": "success",
-            "message": "Desktop client connected successfully",
-            "websocket_available": desktop_service.websocket_server is not None,
-            "websocket_url": "ws://localhost:8001" if desktop_service.websocket_server else None,
-            "queued_items": {
-                "sessions": len(desktop_service.session_data_queue),
-                "notifications": len(desktop_service.notification_queue),
-                "events": len(desktop_service.event_queue)
-            },
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error connecting desktop client: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/desktop/disconnect") 
-async def desktop_client_disconnect():
-    """Notify Python backend that desktop client is disconnected"""
-    if not desktop_service:
-        init_services()
-    
-    try:
-        desktop_service.set_client_connected(False)
-        return {
-            "status": "success",
-            "message": "Desktop client disconnected",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error disconnecting desktop client: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/desktop/status")
-async def get_desktop_client_status():
-    """Get desktop client connection status"""
-    if not desktop_service:
-        init_services()
-    
-    return {
-        "connected": desktop_service.desktop_client_connected,
-        "websocket_available": desktop_service.websocket_server is not None,
-        "websocket_clients": desktop_service.websocket_server.has_connected_clients() if desktop_service.websocket_server else False,
-        "queued_sessions": len(desktop_service.session_data_queue),
-        "queued_notifications": len(desktop_service.notification_queue),
-        "queued_events": len(desktop_service.event_queue),
-        "timestamp": datetime.now().isoformat()
-    }
-
-# HTTP Polling endpoints for desktop client
-@router.get("/desktop/events/poll")
-async def poll_events():
-    """Poll for pending events (HTTP fallback when WebSocket not available)"""
-    if not desktop_service:
-        init_services()
-    
-    try:
-        events = desktop_service.get_pending_events()
-        return {
-            "status": "success",
-            "events": events,
-            "count": len(events),
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error polling events: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/desktop/queue/sessions")
-async def get_queued_sessions():
-    """Get queued session data for desktop client"""
-    if not desktop_service:
-        init_services()
-    
-    try:
-        sessions = desktop_service.session_data_queue.copy()
-        desktop_service.session_data_queue.clear()  # Clear queue after retrieval
-        
-        return {
-            "status": "success",
-            "sessions": sessions,
-            "count": len(sessions),
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error getting queued sessions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/desktop/queue/notifications")
-async def get_queued_notifications():
-    """Get queued notifications for desktop client"""
-    if not desktop_service:
-        init_services()
-    
-    try:
-        notifications = desktop_service.notification_queue.copy()
-        desktop_service.notification_queue.clear()  # Clear queue after retrieval
-        
-        return {
-            "status": "success", 
-            "notifications": notifications,
-            "count": len(notifications),
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error getting queued notifications: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-class DesktopCommandRequest(BaseModel):
-    command: str
-    child_profile: Optional[str] = None
-    parameters: Optional[Dict[str, Any]] = None
-
-@router.post("/desktop/command")
-async def receive_desktop_command(request: DesktopCommandRequest):
-    """Receive commands from desktop client (e.g., from mobile app via Firebase)"""
-    if not monitor_service or not session_manager:
-        init_services()
-    
-    try:
-        result = {"status": "error", "message": "Unknown command"}
-        
-        if request.command == "force_close_roblox":
-            if request.child_profile:
-                success = await monitor_service.force_close_roblox(
-                    f"Remote command from mobile app for {request.child_profile}"
-                )
-                result = {
-                    "status": "success" if success else "error",
-                    "message": "Roblox closed" if success else "Failed to close Roblox",
-                    "command": request.command
-                }
-            
-        elif request.command == "set_time_limit":
-            if request.child_profile and request.parameters and "minutes" in request.parameters:
-                session_manager.set_time_limit(
-                    request.child_profile, 
-                    request.parameters["minutes"]
-                )
-                result = {
-                    "status": "success",
-                    "message": f"Time limit set to {request.parameters['minutes']} minutes",
-                    "command": request.command
-                }
-                
-        elif request.command == "get_live_status":
-            if request.child_profile:
-                session_data = session_manager.get_live_session(request.child_profile)
-                roblox_status = monitor_service.get_roblox_status()
-                result = {
-                    "status": "success",
-                    "data": {
-                        "session": session_data,
-                        "roblox_status": roblox_status
-                    },
-                    "command": request.command
-                }
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error processing desktop command: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

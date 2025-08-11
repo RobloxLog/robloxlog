@@ -1,53 +1,101 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router as api_router
 import asyncio
 from contextlib import asynccontextmanager
-from utils.process_monitor import simple_polling_monitor, check_current_processes, kill_roblox_processes, load_config
+from utils.process_monitor import (
+    ProcessMonitorService, 
+    NotificationService, 
+    SystemInfoService, 
+    SessionManager,
+    DesktopClientService,
+    load_config
+)
+import logging
 
-monitor_task = None
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global services
+monitor_service = None
+notification_service = None
+system_info_service = None
+session_manager = None
+desktop_service = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print("Starting up the application...")
-    conf = load_config()
-    # Check for running Roblox processes on startup
-    processes = check_current_processes()
-    if processes and conf.get("auto_close_roblox", False):
-        await kill_roblox_processes()
-    # Start monitoring automatically
-    global monitor_task
-    monitor_task = asyncio.create_task(simple_polling_monitor())
+    logger.info("Starting Roblox Parental Control Backend...")
+    
+    global monitor_service, notification_service, system_info_service, session_manager, desktop_service
+    
+    # Initialize services
+    monitor_service = ProcessMonitorService()
+    notification_service = NotificationService()
+    system_info_service = SystemInfoService()
+    session_manager = SessionManager()
+    desktop_service = DesktopClientService()
+    
+    # Link services together
+    monitor_service.set_session_manager(session_manager)
+    monitor_service.set_desktop_service(desktop_service)
+    session_manager.set_desktop_service(desktop_service)
+    
+    # Initialize WebSocket server for real-time communication
+    await desktop_service.init_websocket_server()
+    
+    # Load configuration
+    config = load_config()
+    
+    # Start monitoring service
+    await monitor_service.start()
+    
+    logger.info("Backend services started successfully")
     
     yield
     
     # Shutdown
-    print("Shutting down the application...")
-    if monitor_task:
-        monitor_task.cancel()
+    logger.info("Shutting down backend services...")
+    if monitor_service:
+        await monitor_service.stop()
+    logger.info("Backend shutdown complete")
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="Roblox Parental Control Backend",
+    description="Backend service for monitoring and controlling Roblox sessions",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
-@app.post("/start_monitoring")
-async def start_monitoring():
-    global monitor_task
-    if monitor_task is None or monitor_task.done():
-        monitor_task = asyncio.create_task(simple_polling_monitor())
-        return {"message": "Monitoring started."}
-    else:
-        return {"message": "Monitoring is already running."}
+# Add CORS middleware for Flutter app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/stop_monitoring")
-async def stop_monitoring():
-    global monitor_task
-    if monitor_task and not monitor_task.done():
-        monitor_task.cancel()
-        return {"message": "Monitoring stopped."}
-    else:
-        return {"message": "Monitoring is not running."}
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Flutter client"""
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "services": {
+            "monitor": monitor_service.is_running() if monitor_service else False,
+            "notifications": True,
+            "system_info": True
+        }
+    }
 
+# Include all API routes
 app.include_router(api_router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8100)
+    print("Starting Roblox Parental Control Backend on http://localhost:8000")
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
