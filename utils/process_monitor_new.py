@@ -377,48 +377,6 @@ class SystemInfoService:
             return {"error": str(e)}
 
 # Firebase Integration
-class FirebaseService:
-    """Service for Firebase integration"""
-    
-    def __init__(self):
-        self.firebase_initialized = False
-        self._init_firebase()
-    
-    def _init_firebase(self):
-        """Initialize Firebase connection"""
-        try:
-            import firebase_admin
-            from firebase_admin import credentials, firestore
-            
-            # Look for Firebase credentials file
-            cred_file = "robloxlog-264f8-firebase-adminsdk-fbsvc-4b42b3cb1f.json"
-            if Path(cred_file).exists():
-                cred = credentials.Certificate(cred_file)
-                firebase_admin.initialize_app(cred)
-                self.db = firestore.client()
-                self.firebase_initialized = True
-                logger.info("Firebase initialized successfully")
-            else:
-                logger.warning("Firebase credentials file not found")
-                
-        except ImportError:
-            logger.warning("Firebase SDK not installed")
-        except Exception as e:
-            logger.error(f"Firebase initialization failed: {e}")
-    
-    async def sync_session(self, session_data: Dict[str, Any]) -> bool:
-        """Sync session data to Firebase"""
-        if not self.firebase_initialized:
-            return False
-        
-        try:
-            doc_ref = self.db.collection('sessions').document(session_data['session_id'])
-            doc_ref.set(session_data)
-            logger.info(f"Synced session to Firebase: {session_data['session_id']}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to sync session to Firebase: {e}")
-            return False
 
 # Utility functions
 def load_config() -> dict:

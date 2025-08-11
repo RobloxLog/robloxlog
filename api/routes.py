@@ -12,7 +12,6 @@ from utils.process_monitor import (
     SessionManager, 
     NotificationService, 
     SystemInfoService,
-    FirebaseService,
     DesktopClientService,
     load_config, 
     save_config
@@ -27,17 +26,16 @@ monitor_service: Optional[ProcessMonitorService] = None
 session_manager: Optional[SessionManager] = None  
 notification_service: Optional[NotificationService] = None
 system_info_service: Optional[SystemInfoService] = None
-firebase_service: Optional[FirebaseService] = None
+
 desktop_service: Optional[DesktopClientService] = None
 
 # Initialize services on module load
 def init_services():
-    global monitor_service, session_manager, notification_service, system_info_service, firebase_service, desktop_service
+    global monitor_service, session_manager, notification_service, system_info_service, desktop_service
     monitor_service = ProcessMonitorService()
     session_manager = SessionManager()
     notification_service = NotificationService()
     system_info_service = SystemInfoService()
-    firebase_service = FirebaseService()
     desktop_service = DesktopClientService()
     
     # Link services

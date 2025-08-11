@@ -642,19 +642,6 @@ class DesktopClientService:
         self.event_queue.clear()  # Clear after retrieval
         return events
 
-# Legacy Firebase Service for backward compatibility
-class FirebaseService:
-    """Legacy Firebase service - now delegates to desktop client"""
-    
-    def __init__(self):
-        self.firebase_initialized = False  # Always False since we use desktop client
-        self.desktop_service = DesktopClientService()
-        logger.info("Firebase service initialized - using desktop client for Firebase operations")
-    
-    async def sync_session(self, session_data: Dict[str, Any]) -> bool:
-        """Sync session data via desktop client"""
-        return await self.desktop_service.request_firebase_sync(session_data, "session")
-
 # Utility functions
 def load_config() -> dict:
     """Load configuration from config.json"""

@@ -12,7 +12,6 @@ from utils.process_monitor_new import (
     SessionManager, 
     NotificationService, 
     SystemInfoService,
-    FirebaseService,
     load_config, 
     save_config
 )
@@ -26,7 +25,7 @@ monitor_service: Optional[ProcessMonitorService] = None
 session_manager: Optional[SessionManager] = None  
 notification_service: Optional[NotificationService] = None
 system_info_service: Optional[SystemInfoService] = None
-firebase_service: Optional[FirebaseService] = None
+
 
 # Initialize services on module load
 def init_services():
@@ -35,7 +34,6 @@ def init_services():
     session_manager = SessionManager()
     notification_service = NotificationService()
     system_info_service = SystemInfoService()
-    firebase_service = FirebaseService()
     
     # Link services
     monitor_service.set_session_manager(session_manager)
@@ -217,32 +215,6 @@ async def get_live_session(child_profile: str):
         logger.error(f"Error getting live session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Firebase Sync Endpoints
-@router.post("/sync/firebase")
-async def sync_session_with_firebase(request: SyncFirebaseRequest):
-    """Sync session data with Firebase"""
-    if not firebase_service:
-        init_services()
-    
-    try:
-        if firebase_service.firebase_initialized:
-            success = await firebase_service.sync_session(request.session_data)
-            
-            return {
-                "status": "success" if success else "error",
-                "message": "Session synced successfully" if success else "Failed to sync session",
-                "timestamp": datetime.now().isoformat()
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "Firebase not initialized",
-                "timestamp": datetime.now().isoformat()
-            }
-            
-    except Exception as e:
-        logger.error(f"Error syncing with Firebase: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 # System Information Endpoints
 @router.get("/system/info")
